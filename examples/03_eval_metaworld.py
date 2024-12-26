@@ -27,11 +27,13 @@ import wandb
 sys.path.append("/home/xiangtianyu/jinaoqun/act")
 
 # keep this to register ALOHA sim env
-from envs.aloha_sim_env import AlohaGymEnv  # noqa
+from envs.metaworld_env import MetaworldEnv  # noqa
 
 from octo.model.octo_model import OctoModel
 from octo.utils.gym_wrappers import HistoryWrapper, NormalizeProprio, RHCWrapper
 from octo.utils.train_callbacks import supply_rng
+
+import metaworld.envs.mujoco.env_dict as _env_dict
 
 FLAGS = flags.FLAGS
 
@@ -40,9 +42,9 @@ flags.DEFINE_string(
 )
 
 
-def main(_):
+def main(_):    
     # setup wandb for logging
-    wandb.init(name="eval_aloha", project="octo")
+    wandb.init(name="eval_metaworld_train_push", project="octo")
 
     # load finetuned model
     logging.info("Loading finetuned model...")
@@ -62,7 +64,7 @@ def main(_):
     #     }
     #   }
     ##################################################################################################################
-    env = gym.make("aloha-sim-cube-v0")
+    env = MetaworldEnv("push-v2")
 
     # wrap env to normalize proprio
     env = NormalizeProprio(env, model.dataset_statistics)
@@ -85,6 +87,7 @@ def main(_):
 
         # create task specification --> use model utility to create task dict with correct entries
         language_instruction = env.get_task()["language_instruction"]
+        print(language_instruction)
         task = model.create_tasks(texts=language_instruction)
 
         # run rollout for 400 steps
@@ -97,12 +100,13 @@ def main(_):
 
             # step env -- info contains full "chunk" of observations for logging
             # obs only contains observation for final step of chunk
-            obs, reward, done, trunc, info = env.step(actions)
-            images.extend([o["image_primary"][0] for o in info["observations"]])
+            obs, reward, done, trunc, info = env.step(np.array(actions))
+            
+            images.append(obs["image_primary"][0])
             episode_return += reward
             if done or trunc:
                 break
-        print(f"Episode return: {episode_return}")
+        print(f"Episode return: {episode_return}, Done: {done}, Trunc: {trunc}")
 
         # log rollout video to wandb -- subsample temporally 2x for faster logging
         wandb.log(
