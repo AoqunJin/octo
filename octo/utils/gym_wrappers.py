@@ -150,6 +150,9 @@ class RHCWrapper(gym.Wrapper):
 
         return obs, np.sum(rewards), done, trunc, infos
 
+    def do_one_step(self, actions):
+        obs, reward, done, trunc, info = self.env.step(actions)
+        return obs, reward, done, trunc, info
 
 class TemporalEnsembleWrapper(gym.Wrapper):
     """

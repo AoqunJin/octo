@@ -48,7 +48,7 @@ class MetaworldEnv(gym.Env):
         state, reward, done, truncate, info = self._env.step(action)
         images = self._env.render()
         
-        info.update({"images": images})
+        info.update({"state": state})
         obs = {
             "image_primary": images,
             "proprio": np.asarray(state, dtype=np.float32)
@@ -57,6 +57,8 @@ class MetaworldEnv(gym.Env):
         if info['success']: 
             self._episode_is_success = 1
             done = True
+        if self._env.env.curr_path_length == self._env.env.max_path_length:
+            truncate = True
         
         return obs, reward, done, truncate, info
     
@@ -64,7 +66,7 @@ class MetaworldEnv(gym.Env):
         state, info = self._env.reset(**kwargs)
         images = self._env.render()
         
-        info.update({"images": images})
+        info.update({"state": state})
         obs = {
             "image_primary": images,
             "proprio": np.asarray(state, dtype=np.float32)
@@ -74,7 +76,7 @@ class MetaworldEnv(gym.Env):
 
     def get_task(self):
         return {
-            "language_instruction": ["".join(self._env_name.split('-')[:-1])],
+            "language_instruction": [" ".join(self._env_name.split('-')[:-1])],
         }
 
     def get_episode_metrics(self):
