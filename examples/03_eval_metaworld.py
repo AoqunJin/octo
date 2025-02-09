@@ -17,6 +17,8 @@ To run this script, run:
 """
 from functools import partial
 import sys
+import os
+import shutil
 
 from absl import app, flags, logging
 import gym
@@ -24,10 +26,9 @@ import jax
 import flax
 import numpy as np
 import wandb
+from tqdm import tqdm
 
-# sys.path.append("/path/to/act")
-
-# keep this to register ALOHA sim env
+# keep this to register Metaworld sim env
 from envs.metaworld_env import MetaworldEnv  # noqa
 from envs.mw_tools import POLICIES
 
@@ -46,11 +47,11 @@ flags.DEFINE_string(
 
 def main(_):    
     # setup wandb for logging [train | test]
-    wandb.init(name="eval_metaworld_ml10_20e_train_5000", project="octo")
+    wandb.init(name="eval_metaworld", project="octo", mode="offline")
 
     # load finetuned model
     logging.info("Loading finetuned model...")
-    model = OctoModel.load_pretrained(FLAGS.finetuned_path, step=4999)
+    model = OctoModel.load_pretrained(FLAGS.finetuned_path, step=40_000)
 
     # make gym environment
     ##################################################################################################################
@@ -79,7 +80,7 @@ def main(_):
 
         # add wrappers for history and "receding horizon control", i.e. action chunking
         env = HistoryWrapper(env, horizon=1)
-        env = RHCWrapper(env, exec_horizon=50)
+        env = RHCWrapper(env, exec_horizon=1)
 
         # the supply_rng wrapper supplies a new random key to sample_actions every time it's called
         policy_fn = supply_rng(
@@ -88,12 +89,14 @@ def main(_):
                 unnormalization_statistics=model.dataset_statistics["action"],
             ),
         )
-
+        
         # running rollouts
+        episode = []
         total_return = 0
         total_accuracy = 0
-        for i in range(20):
+        for i in tqdm(range(50)):
             obs, info = env.reset()
+            info['state'] = [info['state']]
 
             # create task specification --> use model utility to create task dict with correct entries
             language_instruction = env.get_task()["language_instruction"]
@@ -103,32 +106,24 @@ def main(_):
             # run rollout for 400 steps
             images = [obs["image_primary"][0]]
             episode_return = 0.0
-            while len(images) < 400:
+            for j in range(500):
                 # model returns actions of shape [batch, pred_horizon, action_dim] -- remove batch
-                actions = policy_fn(jax.tree_map(lambda x: x[None], obs), task)
-                actions = actions[0]
-
+                actions = policy_fn(jax.tree_map(lambda x: x[None], obs), task)[0][0]  # (bs, 1, 4)[0][0]
+                expert_action = np.clip(
+                    jax.device_get(expert.get_action(info['state'][-1])), 
+                    -1, 1
+                )
+                   
                 # step env -- info contains full "chunk" of observations for logging
                 # obs only contains observation for final step of chunk
-                obs, reward, done, trunc, info = env.step(np.array(actions))
+                obs, reward, done, trunc, info = env.step(np.array(actions))                
                 
                 images.append(obs["image_primary"][0])
                 episode_return += reward
 
-                # # TODO Simulate expert action
-                # info_expert = info['state'][-1]
-                # for _ in range(50):
-                #     action = np.clip(expert.get_action(info_expert), -1, 1)
-                #     bos_expert, reward_expert, done_expert, trunc_expert, info_expert = env.do_one_step(action)
-                #     info_expert = info_expert['state']
-                    
-                #     if done_expert or trunc_expert:
-                #         done = done_expert
-                #         trunc = trunc_expert
-                #         break
-                    
                 if done or trunc:
                     break
+            
             # print(f"Episode return: {episode_return}, Done: {done}, Trunc: {trunc}")
 
             total_return += episode_return
@@ -137,11 +132,11 @@ def main(_):
             # log rollout video to wandb -- subsample temporally 2x for faster logging
             if i % 5 == 0:
                 wandb.log(
-                    {"rollout_video": wandb.Video(np.array(images).transpose(0, 3, 1, 2)[::2])}
+                    {"rollout_video": wandb.Video(np.array(images).transpose(0, 3, 1, 2)[::10])}
                 )
         
-        print(f"Environment: {name}, Average return: {total_return / 20}, Average accuracy: {total_accuracy / 20}")
-        wandb.log({name: {"average_return": total_return / 20, "average_accuracy": total_accuracy / 20}})
+        print(f"Environment: {name}, Average return: {total_return / 50}, Average accuracy: {total_accuracy / 50}")
+        wandb.log({name: {"average_return": total_return / 50, "average_accuracy": total_accuracy / 50}})
     
 if __name__ == "__main__":
     app.run(main)

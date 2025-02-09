@@ -53,7 +53,7 @@ def main(_):
     tf.config.set_visible_devices([], "GPU")
 
     # setup wandb for logging
-    wandb.init(name="finetune_metaworld", project="octo")
+    wandb.init(name="finetune_metaworld", project="octo", mode="offline")
 
     # load pre-trained model
     logging.info("Loading pre-trained model...")
@@ -66,7 +66,7 @@ def main(_):
     logging.info("Loading finetuning dataset...")
     dataset = make_single_dataset(
         dataset_kwargs=dict(
-            name="metaworld_ml45_20e",
+            name="metaworld_ml10_50e",
             data_dir=FLAGS.data_dir,
             image_obs_keys={"primary": "image"},
             proprio_obs_key="state",
@@ -74,7 +74,7 @@ def main(_):
         ),
         traj_transform_kwargs=dict(
             window_size=1,
-            action_horizon=50,
+            action_horizon=1,  # 50 -> 1
         ),
         frame_transform_kwargs=dict(
             resize_size={"primary": (256, 256)},
@@ -116,7 +116,7 @@ def main(_):
     # Fully override the old action head with a new one (for smaller changes, you can use update_config)
     config["model"]["heads"]["action"] = ModuleSpec.create(
         L1ActionHead,
-        action_horizon=50,
+        action_horizon=1,  # 50 -> 1
         action_dim=4,
         readout_key="readout_action",
     )
@@ -182,7 +182,7 @@ def main(_):
 
     # run finetuning loop
     logging.info("Starting finetuning...")
-    for i in tqdm.tqdm(range(20000), total=20000, dynamic_ncols=True):
+    for i in tqdm.tqdm(range(40_000), total=40_000, dynamic_ncols=True):
         batch = next(train_data_iter)
         train_state, update_info = train_step(train_state, batch)
         if (i + 1) % 100 == 0:
@@ -191,7 +191,7 @@ def main(_):
                 flax.traverse_util.flatten_dict({"training": update_info}, sep="/"),
                 step=i,
             )
-        if (i + 1) % 5000 == 0:
+        if (i + 1) % 40_000 == 0:
             # save checkpoint
             train_state.model.save_pretrained(step=i, checkpoint_path=FLAGS.save_dir)
 
